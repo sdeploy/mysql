@@ -1,0 +1,204 @@
+#!/bin/bash
+
+cmd=$1
+if [ $cmd"x" = "x" ];then
+	echo "Usage: my {start|stop|restart|test|status | 1|0|2|t|s}"
+	exit 2
+fi
+
+# 定位真实路径
+exec_bin=$0
+if [ `ls -l $exec_bin | grep '\-> ' -c` == 1 ];then
+	exec_bin=`ls -l $exec_bin | awk -F'-> ' '{print $2}'`
+	if [ `ls -l $exec_bin | grep '\-> ' -c` == 1 ];then
+		exec_bin=`ls -l $exec_bin | awk -F'-> ' '{print $2}'`
+	fi
+fi
+SERVER_ROOT=`dirname $exec_bin`
+SERVER_ROOT=`dirname $SERVER_ROOT`
+
+# 检测mysqld可执行文件
+SERVER_BIN="mysqld"
+if [ -e "/opt/app/mysql/bin/mysqld" ];then
+	SERVER_BIN="/opt/app/mysql"
+elif [ -e "/usr/mysql/bin/mysqld" ];then
+	SERVER_BIN="/usr/mysql"
+elif [ -e "/usr/local/mysql/bin/mysqld" ];then
+	SERVER_BIN="/usr/local/mysql"
+elif [ -e "/usr/sbin/mysqld" ];then
+	SERVER_BIN="/usr"
+fi
+echo -n -e "[\033[35m$SERVER_BIN/sbin/mysqld\033[0m]	"
+$SERVER_BIN/sbin/mysqld -V | head -1
+
+options="--defaults-file=$SERVER_ROOT/.conf/my.cnf --user=mysql --datadir=$SERVER_ROOT/db --log-error=$SERVER_ROOT/logs/error.log --pid-file=$SERVER_ROOT/db/mysqld.pid --explicit_defaults_for_timestamp"
+
+# 检查相关的文件或目录
+mkdir -p $SERVER_ROOT/logs
+chown mysql:mysql $SERVER_ROOT/logs
+mv -f $SERVER_ROOT/.conf /tmp/ 2>/dev/null
+mkdir -p $SERVER_ROOT/.conf
+
+# 替换内容
+replace()
+{
+	src_file=$1
+	dst_file=$2
+	cp -f $src_file $dst_file
+	if [ -f $src_file.replace ];then
+		grep -v '^\s*#' $src_file.replace | grep '=' | sed -E 's#[[:blank:]]*=[[:blank:]]*#x x x x#' | while read -r line
+		do
+			key2=`echo $line | awk -F'x x x x' '{print $1}'`
+			key1=`echo $key2 | sed 's#\.#\\\.#g'`
+			value=`echo $line | awk -F'x x x x' '{print $2}'`
+			if [ "${key2%% *}" = "${value%% *}" ];then
+				if [ `uname` = 'Darwin' ];then
+					sed -i "" -E "s#${key1}#${value}#" $dst_file
+				else
+					sed -i -E "s#${key1}#${value}#" $dst_file
+				fi
+			else
+				if [ `uname` = 'Darwin' ];then
+					sed -i "" -E "s#^([[:blank:]]*)${key1}([[:blank:]]*=[[:blank:]]*).*\$#\\1${key1}\\2${value}#" $dst_file
+				else
+					sed -i -E "s#^([[:blank:]]*)${key1}([[:blank:]]*=[[:blank:]]*).*\$#\\1${key1}\\2${value}#" $dst_file
+				fi
+			fi
+		done
+	fi
+}
+
+# 处理主配置文件
+if [ -e "$SERVER_ROOT/conf/my.cnf" ];then
+	replace $SERVER_ROOT/conf/my.cnf $SERVER_ROOT/.conf/my.cnf
+else
+	replace $SERVER_ROOT/conf/_my.cnf $SERVER_ROOT/.conf/my.cnf
+fi
+
+# 执行脚本
+if [ -e "$SERVER_ROOT/conf/init.sh" ];then
+	replace $SERVER_ROOT/conf/init.sh $SERVER_ROOT/.conf/init.sh
+	source $SERVER_ROOT/.conf/init.sh
+fi
+
+if [ ! -e "$SERVER_ROOT/db" ];then
+	mkdir -p $SERVER_ROOT/db
+	chown mysql:mysql $SERVER_ROOT/db
+	chmod 750 $SERVER_ROOT/db
+	echo "$SERVER_BIN/sbin/mysqld $options --initialize-insecure"
+	$SERVER_BIN/sbin/mysqld $options --initialize-insecure
+fi
+
+start()
+{
+	echo "Starting mysqld ... $SERVER_BIN/sbin/mysqld $options"
+	$SERVER_BIN/sbin/mysqld $options &
+	echo "Started mysqld [OK]"
+	status
+
+	# 执行脚本
+	if [ -e "$SERVER_ROOT/conf/start.sh" ];then
+		replace $SERVER_ROOT/conf/start.sh $SERVER_ROOT/.conf/start.sh
+		source $SERVER_ROOT/.conf/start.sh
+	fi
+}
+
+restart()
+{
+	stop
+	start
+}
+
+stop()
+{
+	echo "Stopping mysqld ..."
+
+	# 执行脚本
+	if [ -e "$SERVER_ROOT/conf/stop.sh" ];then
+		replace $SERVER_ROOT/conf/stop.sh $SERVER_ROOT/.conf/stop.sh
+		source $SERVER_ROOT/.conf/stop.sh
+	fi
+
+	if [ -e "$SERVER_ROOT/db/mysqld.pid" ];then
+		pid=`cat $SERVER_ROOT/db/mysqld.pid`
+		kill -QUIT $pid
+	fi
+
+	xn="n"
+	while [ "x"$xn != "xnnnnnnnnnn" ]
+	do
+	    xn=$xn"n"
+		if [ -e "$SERVER_ROOT/db/mysqld.pid" ];then
+		    if [ "x"$xn = "xnnnnnnnnnn" ];then
+				kill -9 $pid
+				break
+		    fi
+		else
+			break
+		fi
+	
+	    echo -n "."
+	    sleep 1
+	done
+
+	echo "Stopped mysqld [OK]"
+	status
+}
+
+test()
+{
+	$SERVER_BIN $options -t
+}
+
+status()
+{
+	echo "[`ps ax | grep mysqld | grep -v grep | wc -l | awk '{print $1}'` Threads]"
+	ps ax | grep mysqld | grep -v grep
+}
+
+
+case "$1" in
+	start)
+		start
+		;;
+	1)
+		start
+		;;
+
+	reload)
+		restart
+		;;
+	restart)
+		restart
+		;;
+	2)
+		restart
+		;;
+
+	stop)
+		stop
+		;;
+	0)
+		stop
+		;;
+
+	test)
+		status
+		;;
+	t)
+		status
+		;;
+
+	status)
+		status
+		;;
+	s)
+		status
+		;;
+
+	*)
+
+	exit 2
+esac
+echo ""
+
