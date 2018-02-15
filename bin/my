@@ -20,16 +20,18 @@ SERVER_ROOT=`dirname $SERVER_ROOT`
 # 检测mysqld可执行文件
 SERVER_BIN="mysqld"
 if [ -e "/opt/app/mysql/bin/mysqld" ];then
-	SERVER_BIN="/opt/app/mysql"
+	SERVER_BIN="/opt/app/mysql/bin/mysqld"
 elif [ -e "/usr/mysql/bin/mysqld" ];then
-	SERVER_BIN="/usr/mysql"
+	SERVER_BIN="/usr/mysql/bin/mysqld"
 elif [ -e "/usr/local/mysql/bin/mysqld" ];then
-	SERVER_BIN="/usr/local/mysql"
+	SERVER_BIN="/usr/local/mysql/bin/mysqld"
+elif [ -e "/usr/local/bin/mysqld" ];then
+	SERVER_BIN="/usr/local/bin/mysqld"
 elif [ -e "/usr/sbin/mysqld" ];then
-	SERVER_BIN="/usr"
+	SERVER_BIN="/usr/sbin/mysqld"
 fi
-echo -n -e "[\033[35m$SERVER_BIN/sbin/mysqld\033[0m]	"
-$SERVER_BIN/sbin/mysqld -V | head -1
+echo -n -e "[\033[35m$SERVER_BIN\033[0m]	"
+$SERVER_BIN -V | head -1
 
 options="--defaults-file=$SERVER_ROOT/.conf/my.cnf --user=mysql --datadir=$SERVER_ROOT/db --log-error=$SERVER_ROOT/logs/error.log --pid-file=$SERVER_ROOT/db/mysqld.pid --explicit_defaults_for_timestamp"
 
@@ -85,14 +87,14 @@ if [ ! -e "$SERVER_ROOT/db" ];then
 	mkdir -p $SERVER_ROOT/db
 	chown mysql:mysql $SERVER_ROOT/db
 	chmod 750 $SERVER_ROOT/db
-	echo "$SERVER_BIN/sbin/mysqld $options --initialize-insecure"
-	$SERVER_BIN/sbin/mysqld $options --initialize-insecure
+	echo "$SERVER_BIN $options --initialize-insecure"
+	$SERVER_BIN $options --initialize-insecure
 fi
 
 start()
 {
-	echo "Starting mysqld ... $SERVER_BIN/sbin/mysqld $options"
-	$SERVER_BIN/sbin/mysqld $options &
+	echo "Starting mysqld ... $SERVER_BIN $options"
+	$SERVER_BIN $options &
 	echo "Started mysqld [OK]"
 	status
 
